@@ -1,0 +1,27 @@
+# Environment / secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+
+# Backup artifacts
+backups/*.dump
+backups/*.bak
+*.pid
+
+# Runtime / logs
+logs/*.log
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Deployment state marker (created on first successful deploy)
+.deployed
+
+# Ruff / linter caches (project-level, if any added later)
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/

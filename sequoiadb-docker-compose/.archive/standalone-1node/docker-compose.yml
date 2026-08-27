@@ -1,0 +1,65 @@
+# SequoiaDB 5.0.1 standalone single-host deployment.
+# Image: sequoiadb/sequoiadb:v5.0.1 (official Docker Hub tag, per user note)
+# Entrypoint: /opt/docker-entrypoint.sh — reads SDB_DEPLOY + SDB_* env vars to bootstrap
+# the cluster on first boot.
+#
+# Ports (host → container):
+#   11810 → 11810  (coord / SQL access)
+#   11800 → 11800  (catalog)
+#   11820 → 11820  (data group1)
+#
+# Resource cap (single node, ~512 MB headroom left on the 6.5 GB host).
+version: "3.8"
+
+services:
+  sequoiadb:
+    image: sequoiadb/sequoiadb:v5.0.1
+    container_name: sequoiadb
+    restart: unless-stopped
+    hostname: sequoiadb
+    # Override the image entrypoint with our wrapper. The image's official
+    # entrypoint skips node startup on subsequent boots; this wrapper fixes that.
+    entrypoint: ["/bin/bash", "/opt/sequoiadb/wrapper/entrypoint-wrapper.sh"]
+    environment:
+      TZ: ${TZ}
+      SDB_DEPLOY: "1"
+      SDB_COORD: "sequoiadb:11810"
+      SDB_CATALOG: "sequoiadb:11800"
+      SDB_DATA: "group1=sequoiadb:11820"
+      SDB_STP_SERVER: "sequoiadb:9622"
+    ports:
+      - "11810:11810"
+      - "11800:11800"
+      - "11820:11820"
+    volumes:
+      - sequoiadb_data:/opt/sequoiadb/database
+      - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.10
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/11800 2>/dev/null && exec 3<&- && exit 0 || exit 1'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+          cpus: "2.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  sequoiadb-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  sequoiadb_data:

@@ -1,0 +1,175 @@
+# SequoiaDB 5.0.1 — 3-node distributed cluster deployment.
+#
+# Topology (per the official SequoiaDB 3.4 "集群模式部署" doc):
+#   - 3 hosts: sdbserver1, sdbserver2, sdbserver3
+#   - 1 catalog replica group, 3 catalog nodes (one per host) — port 11800
+#   - 1 data replica group "group1", 3 data nodes (one per host) — port 11820
+#   - 1 coord replica group, 3 coord nodes (one per host) — port 11810
+#   - STP server on every host — port 9622
+#   - sdbcm (cluster manager) on every host — port 11790
+#
+# Naming rule: service name == container hostname == cluster node name == sdbserverN.
+# This is required so Docker's embedded DNS resolves sdbserver1/2/3 across
+# containers — SequoiaDB's bootstrap references nodes by their logical hostname.
+#
+# On first boot:
+#   1. All three sdbserver{1,2,3} containers start sdbcm only (no node startup yet).
+#   2. sdb-init waits for all three sdbcm ports (11790) to be reachable, then
+#      runs scripts/bootstrap.sh to create the topology exactly as the official
+#      doc describes (create temp coord 18800 → createCataRG + 3 nodes →
+#      createRG("group1") + 3 nodes → createCoordRG + 3 nodes → removeCoord).
+#   3. Init writes /var/sdb-bootstrap/.done on the shared volume.
+#   4. Each sdbserverN wrapper waits for the marker, ensures local nodes are
+#      running via `sdbstart -t all`, then sleeps forever.
+#
+# On subsequent boots, init is idempotent (skips groups that already exist);
+# sdbcm on each host auto-starts the registered nodes (per official 集群启停.md
+# § 集群管理服务 — "sdbcm 服务处于运行状态时，会自动启动数据库中已有的节点").
+#
+# Image: sequoiadb/sequoiadb:v5.0.1. Docs are v3.4 but the bootstrap APIs
+# (Oma.createCoord, db.createCataRG, cataRG.createNode, db.createRG,
+# db.createCoordRG, oma.removeCoord) are stable across 3.x / 5.x.
+version: "3.8"
+
+x-sdb-base: &sdb-base
+  image: sequoiadb/sequoiadb:v5.0.1
+  restart: unless-stopped
+  # Override the image entrypoint — we do NOT use SDB_DEPLOY=1 because that path
+  # is designed for single-node bootstrap and three containers racing on the
+  # same topology would conflict.
+  entrypoint: ["/bin/bash", "/opt/sequoiadb/wrapper/entrypoint-wrapper.sh"]
+  environment:
+    TZ: ${TZ}
+    SDB_BOOTSTRAP_DIR: /var/sdb-bootstrap
+  volumes:
+    - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
+    - sdb_bootstrap:/var/sdb-bootstrap
+  healthcheck:
+    test: ["CMD-SHELL", "/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/11790 2>/dev/null && exec 3<&- && exit 0 || exit 1'"]
+    interval: 15s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+  deploy:
+    resources:
+      limits:
+        memory: ${SEQUOIADB_MEM_LIMIT}
+        cpus: "${SEQUOIADB_CPU_LIMIT}"
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+services:
+  sdbserver1:
+    <<: *sdb-base
+    container_name: sdbserver1
+    hostname: sdbserver1
+    volumes:
+      - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
+      - sdb1_data:/opt/sequoiadb/database
+      - sdb_bootstrap:/var/sdb-bootstrap
+    ports:
+      # Coord is the client access point. Map every node's coord to a distinct
+      # host port so clients can fail-over to sdbserver2/3 if sdbserver1 is down.
+      - "${HOST_COORD_PORT_1}:11810"
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.11
+
+  sdbserver2:
+    <<: *sdb-base
+    container_name: sdbserver2
+    hostname: sdbserver2
+    volumes:
+      - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
+      - sdb2_data:/opt/sequoiadb/database
+      - sdb_bootstrap:/var/sdb-bootstrap
+    ports:
+      - "${HOST_COORD_PORT_2}:11810"
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.12
+
+  sdbserver3:
+    <<: *sdb-base
+    container_name: sdbserver3
+    hostname: sdbserver3
+    volumes:
+      - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
+      - sdb3_data:/opt/sequoiadb/database
+      - sdb_bootstrap:/var/sdb-bootstrap
+    ports:
+      - "${HOST_COORD_PORT_3}:11810"
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.13
+
+  # Init container: one-shot. Runs scripts/bootstrap.sh to create the catalog /
+  # data / coord replica groups on a fresh cluster. Exits 0 when done.
+  # Runs as root so it can chown the shared sdb_bootstrap volume (otherwise it
+  # comes up root:root 755 and sdbadmin in the main wrappers can't write the
+  # wait-marker). The sdb shell commands inside bootstrap.sh still talk to
+  # remote sdbcm processes; they don't need to run as a specific user.
+  sdb-init:
+    image: sequoiadb/sequoiadb:v5.0.1
+    container_name: sdb-init
+    restart: "no"
+    user: "0"
+    entrypoint: ["/bin/bash", "/opt/sequoiadb/wrapper/bootstrap.sh"]
+    environment:
+      TZ: ${TZ}
+      SDB_NODE_1: sdbserver1
+      SDB_NODE_2: sdbserver2
+      SDB_NODE_3: sdbserver3
+      SDB_CATALOG_PORT: "11800"
+      SDB_DATA_PORT: "11820"
+      SDB_COORD_PORT: "11810"
+      SDB_DATA_GROUP: group1
+      # Temp coord port: NOT 18800. sdbcm auto-registers a temp coord on 18800
+      # when it starts on an empty cluster, which races with our bootstrap.
+      SDB_TEMP_COORD_PORT: "29800"
+      SDB_CM_PORT: "11790"
+      SDB_BOOTSTRAP_DIR: /var/sdb-bootstrap
+    volumes:
+      - ./scripts/bootstrap.sh:/opt/sequoiadb/wrapper/bootstrap.sh:ro
+      - sdb_bootstrap:/var/sdb-bootstrap
+      # Mount the host docker socket so init can `docker exec` into sdbserverN
+      # to wipe stale temp coord data dirs (createCoord refuses to use a path
+      # that already exists; sdbcm auto-restarts registered nodes, so the
+      # wrapper's pre-cleanup race-conditions with sdbcm startup).
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      sdbserver1:
+        condition: service_healthy
+      sdbserver2:
+        condition: service_healthy
+      sdbserver3:
+        condition: service_healthy
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.20
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+networks:
+  sequoiadb-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  sdb1_data:
+  sdb2_data:
+  sdb3_data:
+  sdb_bootstrap:

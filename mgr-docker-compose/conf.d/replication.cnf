@@ -1,0 +1,7 @@
+# Loaded alphabetically after my.cnf; kept separate for clarity.
+[mysqld]
+relay_log                      = relay-bin
+relay_log_info_repository      = TABLE
+master_info_repository         = TABLE
+sync_binlog                    = 1
+slave_rows_search_algorithms   = INDEX_SCAN,HASH_SCAN

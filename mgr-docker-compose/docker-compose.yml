@@ -1,0 +1,104 @@
+# Compatible with both `docker-compose` (v1) and `docker compose` (v2).
+# bootstrap.sh detects which is available.
+#
+# Note: mgr-router is intentionally NOT in this compose file.
+# Its lifecycle is managed by init/03-router-config.sh (mysqlrouter --bootstrap
+# generates config, then a separate docker run starts the daemon).
+#
+# The mgr-net network is marked EXTERNAL — bootstrap.sh creates it before
+# docker compose runs. This avoids compose's project-prefixed naming.
+#
+# Per-node MySQL options (server-id, group_replication_local_address) are
+# passed via `command:` because bind-mounted cnf files do NOT go through
+# compose's ${VAR} substitution.
+
+x-mysql-common: &mysql-common
+  image: ${MYSQL_IMAGE}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    TZ: ${TZ}
+    MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  healthcheck:
+    test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+    start_period: 60s
+  deploy:
+    resources:
+      limits:
+        memory: ${MYSQL_MEM_LIMIT}
+        cpus: "${MYSQL_CPU_LIMIT}"
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+services:
+  mgr-node1:
+    <<: *mysql-common
+    container_name: mgr-node1
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command:
+      - --server-id=1
+      - --loose-group_replication_local_address=mgr-node1:33061
+    ports:
+      - "33361:3306"
+      - "13361:33061"
+    volumes:
+      - ${PWD}/conf.d:/etc/mysql/conf.d:ro
+      - ${PWD}/logs/mgr-node1:/var/log/mysql
+      - mgr_node1_data:/var/lib/mysql
+    networks:
+      - mgr-net
+
+  mgr-node2:
+    <<: *mysql-common
+    container_name: mgr-node2
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command:
+      - --server-id=2
+      - --loose-group_replication_local_address=mgr-node2:33061
+    ports:
+      - "33362:3306"
+      - "13362:33061"
+    volumes:
+      - ${PWD}/conf.d:/etc/mysql/conf.d:ro
+      - ${PWD}/logs/mgr-node2:/var/log/mysql
+      - mgr_node2_data:/var/lib/mysql
+    networks:
+      - mgr-net
+
+  mgr-node3:
+    <<: *mysql-common
+    container_name: mgr-node3
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    command:
+      - --server-id=3
+      - --loose-group_replication_local_address=mgr-node3:33061
+    ports:
+      - "33363:3306"
+      - "13363:33061"
+    volumes:
+      - ${PWD}/conf.d:/etc/mysql/conf.d:ro
+      - ${PWD}/logs/mgr-node3:/var/log/mysql
+      - mgr_node3_data:/var/lib/mysql
+    networks:
+      - mgr-net
+
+networks:
+  mgr-net:
+    external: true
+
+volumes:
+  mgr_node1_data:
+  mgr_node2_data:
+  mgr_node3_data:

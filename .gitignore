@@ -1,0 +1,56 @@
+# =============================================================================
+# Top-level .gitignore for the docker-file monorepo.
+# Each subproject may have its own .gitignore for project-specific patterns.
+# =============================================================================
+
+# ---- Secrets / environment ----
+# NEVER commit real .env files — only .env.example templates.
+.env
+.env.local
+.env.*.local
+**/.env
+!**/.env.example
+
+# ---- Backups / runtime state ----
+backups/
+**/backups/
+*.dump
+*.bak
+*.pid
+.deployed
+**/.deployed
+
+# ---- Logs ----
+*.log
+logs/*.log
+**/*.log
+!**/.log   # allow dotfiles that happen to be named .log
+
+# ---- Editor / IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ---- Python / linter caches ----
+__pycache__/
+**/__pycache__/
+*.pyc
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# ---- Node (if added later) ----
+node_modules/
+**/node_modules/
+
+# ---- Terraform / IaC (if added later) ----
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# ---- Build / dist ----
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,9 @@
+.env
+backups/*.sql*
+logs/*.log
+logs/*.err
+*.pid
+mgr-router-conf/
+.vscode/
+.idea/
+.deployed

@@ -1,0 +1,54 @@
+---
+title: query()
+category: 参考手册
+source: https://doc.sequoiadb.com/cn/sequoiadb-cat_id-1432190856-edition_id-304
+---
+
+## 名称
+
+query - 以下标的方式访问查询结果集
+
+## 语法
+
+**query[ <index> ]**
+
+## 类别
+
+SdbQuery
+
+## 描述
+
+以下标的方式访问查询结果集。
+
+## 参数
+
+参数名 | 参数类型 | 默认值 | 描述 | 是否必填  
+---|---|---|---|---  
+index | int | \--- | 数组下标 | 是  
+  
+## 返回值
+
+返回指定下标的记录。
+
+## 错误
+
+如果出错则抛异常，并输出错误信息，可以通过[getLastErrMsg()](/cn/sequoiadb-cat_id-1477902870-edition_id-304)获取错误信息或通过[getLastError()](/cn/sequoiadb-cat_id-1477902869-edition_id-304)获取错误码。 关于错误处理可以参考[常见错误处理指南](/cn/sequoiadb-cat_id-1478742401-edition_id-304)。
+
+常见错误可参考[错误码](/cn/sequoiadb-cat_id-1432190985-edition_id-304)。
+
+## 版本
+
+v2.0 及以上版本。
+
+## 示例
+    
+    
+    > var query = db.sample.employee.find()
+    > println( query[0] )
+    {
+      "_id": {
+        "$oid": "5cf8aef75e72aea111e82b38"
+      },
+      "name": "tom",
+      "age": 20
+    }

@@ -1,0 +1,80 @@
+---
+title: getIndex()
+category: 参考手册
+source: https://doc.sequoiadb.com/cn/sequoiadb-cat_id-1432190837-edition_id-304
+---
+
+## 名称
+
+getIndex - 获取指定索引
+
+## 语法
+
+**db.collectionspace.collection.getIndex( <name>)**
+
+## 类别
+
+SdbCollection
+
+## 描述
+
+该函数用于获取当前集合中指定的索引信息。
+
+## 参数
+
+  * name ( _string_ ， _必填_ )
+
+被指定的索引名。
+
+> **Note:**
+> 
+>   * 索引名不能是空串，含点（.）或者美元符号（$），且长度不超过127B。
+> 
+
+## 返回值
+
+函数执行成功时，将返回一个 BSONObj 类型的对象。通过该对象获取集合详细信息列表，字段说明可参考[索引统计信息快照](/cn/sequoiadb-cat_id-1592467466-edition_id-304)。
+
+函数执行失败时，将抛异常并输出错误信息。
+
+## 错误
+
+`getIndex()`函数常见异常如下：
+
+错误码 | 错误名 | 可能发生的原因 | 解决办法  
+---|---|---|---  
+-47 | SDB_IXM_NOTEXIST | 索引不存在 | 检查索引是否存在  
+  
+当异常抛出时，可以通过 [getLastErrMsg()](/cn/sequoiadb-cat_id-1477902870-edition_id-304) 获取错误信息或通过 [getLastError()](/cn/sequoiadb-cat_id-1477902869-edition_id-304) 获取错误码。更多错误处理可以参考[常见错误处理指南](/cn/sequoiadb-cat_id-1478742401-edition_id-304)。
+
+## 版本
+
+v1.10 及以上版本
+
+## 示例
+
+  * 获取集合 sample.employee 下名为 ageIndex 的索引信息，假设 ageIndex 已存在。
+        
+        > db.sample.employee.getIndex( "ageIndex" )
+
+结果如下：
+        
+        {
+         "IndexDef": {
+             "name": "ageIndex",
+             "_id": {
+               "$oid": "5f4f3b938f5a48a0c3a5f3ad"
+             },
+             "key": {
+               "age": 1
+             },
+             "v": 0,
+            "unique": true,
+             "dropDups": false,
+             "enforced": false,
+             "NotNull": false,
+             "NotArray": false
+          },
+          "IndexFlag": "Normal",
+          "Type": "Positive"
+        }

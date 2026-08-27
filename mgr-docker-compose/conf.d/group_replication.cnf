@@ -1,0 +1,11 @@
+# Loaded alphabetically after my.cnf and replication.cnf.
+# Per-node values (local_address) are passed via docker-compose command:
+#   --loose-group_replication_local_address=mgr-nodeN:33061
+[mysqld]
+loose-group_replication_group_name      = aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+loose-group_replication_start_on_boot   = OFF
+loose-group_replication_group_seeds     = "mgr-node1:33061,mgr-node2:33061,mgr-node3:33061"
+loose-group_replication_ip_allowlist    = "192.168.100.0/24,172.20.0.0/16"
+loose-group_replication_member_expel_timeout = 5
+loose-group_replication_autorejoin_tries     = 3
+loose-group_replication_consistency_mode      = EVENTUAL

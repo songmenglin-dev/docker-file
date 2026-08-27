@@ -1,0 +1,147 @@
+---
+title: createIndex()
+category: 参考手册
+source: https://doc.sequoiadb.com/cn/sequoiadb-cat_id-1432190830-edition_id-304
+---
+
+## 名称
+
+createIndex - 创建索引
+
+## 语法
+
+**db.collectionspace.collection.createIndex( <name>, <indexDef>, [isUnique], [enforced], [sortBufferSize])**
+
+**db.collectionspace.collection.createIndex( <name>, <indexDef>, [options])**
+
+## 类别
+
+SdbCollection
+
+## 描述
+
+该函数用于为集合创建[索引](/cn/sequoiadb-cat_id-1432190613-edition_id-304)，以提高查询速度。创建前用户需了解索引的相关[限制](/cn/sequoiadb-cat_id-1432190984-edition_id-304#%E7%B4%A2%E5%BC%95)。
+
+如果索引字段在集合中为正序排序或需要匹配值较小的记录时，建议创建升序的索引，可以更快命中目标记录。如果需要匹配值较大的记录，建议创建降序的索引。在实际使用中，根据场景正确地指定索引类型，可以极大地提升索引的查询效率。
+
+## 参数
+
+  * name（ _string，必填_ ）
+
+索引名，同一个集合中的索引名必须唯一
+
+  * indexDef（ _object，必填_ ）
+
+索引键，格式为 `{<索引字段>:<类型值>, ...}`，其中可选类型值如下：
+
+    * 1：按字段值升序排序
+    * -1：按字段值降序排序
+    * "text"：创建[全文索引](/cn/sequoiadb-cat_id-1519293107-edition_id-304)
+  * isUnique（ _boolean，选填_ ）
+
+是否为唯一索引，默认值为 false，表示不为唯一索引
+
+  * enforced（ _boolean，选填_ ）
+
+是否强制唯一，默认值为 false
+
+    * 取值为 true 时，不能重复插入索引字段值为 null 的记录。
+    * 仅在参数 isUnique 为 true 时生效。
+  * sortBufferSize（ _number，选填_ ）
+
+排序缓存的大小，默认值为 64，单位为 MB
+
+    * 取值为 0 时，表示不使用排序缓存。
+    * 当集合的记录数大于 1000 万条时，适当增大排序缓存大小可提高创建索引的速度。
+
+> **Note:**
+> 
+> 对于全文索引，参数 isUnique、enforced 和 sortBufferSize 不生效。
+
+  * options（ _object，选填_ ）
+
+通过参数 options 可以设置索引属性：
+
+    * Unique（ _boolean_ ）：是否为唯一索引，默认值为 false，表示不为唯一索引
+
+格式：`Unique: true`
+
+    * Enforced（ _boolean_ ）：是否强制唯一，默认值为 false
+
+      * 取值为 true 时，不能重复插入索引字段值为 null 的记录。
+      * 仅在参数 Unique 为 true 时生效。
+
+格式：`Enforced: true`
+
+    * NotNull（ _boolean_ ）：插入记录时是否允许索引字段不存在或取值为 null，默认值为 false
+
+取值如下：
+
+      * true：索引字段必须存在且取值不能为 null
+      * false：允许索引字段不存在或取值为 null
+
+格式：`NotNull: true`
+
+    * NotArray（ _boolean_ ）：插入记录时是否允许索引字段的取值为数组，默认值为 false
+
+取值如下：
+
+      * true：索引字段的值不允许为数组
+      * false：索引字段的字段值允许为数组
+
+格式：`NotArray: true`
+
+    * SortBufferSize（ _number_ ）：排序缓存的大小，默认值为 64，单位为 MB
+
+      * 取值为 0 时，表示不使用排序缓存。
+      * 当集合的记录数大于 1000 万条时，适当增大排序缓存大小可提高创建索引的速度
+
+格式：`SortBufferSize: 80`
+
+## 返回值
+
+函数执行成功时，无返回值。
+
+函数执行失败时，将抛异常并输出错误信息。
+
+## 错误
+
+当异常抛出时，可以通过 [getLastErrMsg()](/cn/sequoiadb-cat_id-1477902870-edition_id-304) 获取错误信息或通过 [getLastError()](/cn/sequoiadb-cat_id-1477902869-edition_id-304) 获取[错误码](/cn/sequoiadb-cat_id-1432190985-edition_id-304)。更多错误处理可以参考[常见错误处理指南](/cn/sequoiadb-cat_id-1478742401-edition_id-304)。
+
+## 版本
+
+v2.0 及以上版本
+
+## 示例
+
+  * 创建名为“ageIndex”的唯一索引，并指定记录按索引字段 age 的值升序排序
+        
+        > db.sample.employee.createIndex("ageIndex", {age: 1}, true)
+
+  * 创建名为“addr_tags”的全文索引
+        
+        > db.sample.employee.createIndex("addr_tags", {address: "text", tags: "text"})
+
+  * 创建名为“ab”的唯一索引，并指定参数 NotNull 为 true
+        
+        > db.sample.employee.createIndex("ab", {a: 1, b: 1}, {Unique: true, NotNull: true})
+
+当字段 b 不存在或取值为 null 时，将返回报错信息
+        
+        > db.sample.employee.insert({a: 1})
+        sdb.js:625 uncaught exception: -339
+        Any field of index key should exist and cannot be null 
+        
+        > db.sample.employee.insert({a: 1, b: null})
+        sdb.js:625 uncaught exception: -339
+        Any field of index key should exist and cannot be null 
+
+  * 创建名为“ab”的索引，并指定参数 NotArray 为 true
+        
+        > db.sample.employee.createIndex("ab", {a: 1, b: 1}, {NotArray: true})
+
+当字段 a 为数组时，将返回报错信息
+        
+        > db.sample.employee.insert({a: [1], b: 10})
+        sdb.js:645 uncaught exception: -364
+        Any field of index key cannot be array
