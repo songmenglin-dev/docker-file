@@ -96,6 +96,11 @@ for _ in $(seq 1 30); do
 done
 
 log "=== Phase 3: create catalog replica group with 3 nodes ==="
+# Catalog group is special: the first node (NODE_1) IS the initial catalog and
+# does not need a catalogaddr. Nodes 2 and 3 joining need NODE_1's catalog
+# address to know where the catalog quorum lives. Without it, createNode
+# returns -180 "There is no catalog address specified by user".
+CATALOG_ADDR="$NODE_1:$CATALOG_PORT"
 cat > "$SDB_TMPJS" <<JS
 var db = new Sdb("$NODE_1", $TEMP_COORD_PORT);
 try { db.createCataRG("$NODE_1", $CATALOG_PORT,
@@ -103,7 +108,7 @@ try { db.createCataRG("$NODE_1", $CATALOG_PORT,
 catch (e) { print("createCataRG tolerated: " + e); }
 var cataRG = db.getCataRG();
 function safeCreateNode(rg, host, port, path, label) {
-  try { rg.createNode(host, port, path); print(label + " createNode OK"); }
+  try { rg.createNode(host, port, path, {catalogaddr:"$CATALOG_ADDR"}); print(label + " createNode OK"); }
   catch (e) { print(label + " createNode tolerated: " + e); }
 }
 safeCreateNode(cataRG, "$NODE_2", $CATALOG_PORT,
@@ -116,13 +121,15 @@ JS
 run_sdb "phase3"
 
 log "=== Phase 4: create data replica group '$DATA_GROUP' with 3 nodes ==="
+# Data group nodes also need catalogaddr so they can find the catalog.
+# Same -180 error if missing.
 cat > "$SDB_TMPJS" <<JS
 var db = new Sdb("$NODE_1", $TEMP_COORD_PORT);
 var dataRG;
 try { dataRG = db.createRG("$DATA_GROUP"); print("createRG OK"); }
 catch (e) { print("createRG tolerated: " + e); dataRG = db.getRG("$DATA_GROUP"); }
 function safeCreateNode(rg, host, port, path, label) {
-  try { rg.createNode(host, port, path); print(label + " createNode OK"); }
+  try { rg.createNode(host, port, path, {catalogaddr:"$CATALOG_ADDR"}); print(label + " createNode OK"); }
   catch (e) { print(label + " createNode tolerated: " + e); }
 }
 safeCreateNode(dataRG, "$NODE_1", $DATA_PORT,
@@ -137,13 +144,14 @@ JS
 run_sdb "phase4"
 
 log "=== Phase 5: create coord replica group with 3 nodes ==="
+# Coord group is a virtual routing layer; its nodes also need catalogaddr.
 cat > "$SDB_TMPJS" <<JS
 var db = new Sdb("$NODE_1", $TEMP_COORD_PORT);
 try { db.createCoordRG(); print("createCoordRG OK"); }
 catch (e) { print("createCoordRG tolerated: " + e); }
 var coordRG = db.getCoordRG();
 function safeCreateNode(rg, host, port, path, label) {
-  try { rg.createNode(host, port, path); print(label + " createNode OK"); }
+  try { rg.createNode(host, port, path, {catalogaddr:"$CATALOG_ADDR"}); print(label + " createNode OK"); }
   catch (e) { print(label + " createNode tolerated: " + e); }
 }
 safeCreateNode(coordRG, "$NODE_1", $COORD_PORT,

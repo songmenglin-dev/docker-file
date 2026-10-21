@@ -69,6 +69,11 @@ services:
     volumes:
       - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
       - sdb1_data:/opt/sequoiadb/database
+      # sdbcm's local node registry. Without persistence, `conf/local/` is
+      # empty on every fresh container, and `sdbstart -t all` reports
+      # "No node configs" — leaving catalog/coord/data node ports closed
+      # even though the cluster topology exists in the catalog.
+      - sdb1_local:/opt/sequoiadb/conf/local
       - sdb_bootstrap:/var/sdb-bootstrap
     ports:
       # Coord is the client access point. Map every node's coord to a distinct
@@ -85,6 +90,7 @@ services:
     volumes:
       - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
       - sdb2_data:/opt/sequoiadb/database
+      - sdb2_local:/opt/sequoiadb/conf/local
       - sdb_bootstrap:/var/sdb-bootstrap
     ports:
       - "${HOST_COORD_PORT_2}:11810"
@@ -99,6 +105,7 @@ services:
     volumes:
       - ./conf/entrypoint-wrapper.sh:/opt/sequoiadb/wrapper/entrypoint-wrapper.sh:ro
       - sdb3_data:/opt/sequoiadb/database
+      - sdb3_local:/opt/sequoiadb/conf/local
       - sdb_bootstrap:/var/sdb-bootstrap
     ports:
       - "${HOST_COORD_PORT_3}:11810"
@@ -161,6 +168,81 @@ services:
         max-size: "20m"
         max-file: "2"
 
+  # ============================================================================
+  # SequoiaSQL-MySQL gateway — MySQL-protocol front-end backed by SequoiaDB.
+  # All data lives in SDB; this container only holds its own metadata catalog.
+  # Connects to sdbserver1's coord (11810); the coord forwards to the catalog/data
+  # groups internally. HA setups would deploy one instance per sdbserver.
+  #
+  # Host port 13306 deliberately avoids the standalone pgsql14 (5432) and
+  # mysql8 (33306) so those containers stay untouched.
+  # ============================================================================
+  sequoiasql-mysql:
+    image: sequoiadb/sequoiasql-mysql:v5.0.1
+    container_name: sequoiasql-mysql
+    hostname: sequoiasql-mysql
+    # Custom wrapper entrypoint. It restores the SQL catalog from the
+    # sdb_catalog_backup volume on start, then exec's the image's own
+    # /opt/docker-entrypoint.sh as a background child. On SIGTERM (the
+    # signal `docker-compose stop` / `down` sends), the wrapper backs up
+    # the live data dir to the volume before exiting. Running as PID 1
+    # (no `exec`) is what makes the SIGTERM trap work — if we exec'd the
+    # image's entrypoint, signals would bypass our backup logic.
+    entrypoint: ["/bin/bash", "/opt/sequoiadb/wrapper/sequoiasql-mysql-persist.sh"]
+    # Run as the image's default user (sdbadmin). The image's inner entrypoint
+    # refuses to run as root ("You should execute this script by user[sdbadmin]")
+    # and /opt/docker-entrypoint.sh has mode 0644 (not executable), so we must
+    # invoke it via `bash` rather than exec — both handled in the wrapper.
+    restart: unless-stopped
+    environment:
+      # SequoiaSQL-MySQL v5.0.1 entrypoint requires MYSQL_SDB_COORD (NOT SDB_COORD
+      # — that's the sdbserver-level variable for cluster bootstrap). Listing all
+      # three coord endpoints so the gateway can fail over if sdbserver1 is down.
+      MYSQL_SDB_COORD: "sdbserver1:11810,sdbserver2:11810,sdbserver3:11810"
+      MYSQL_ROOT_PASSWORD: ${SDB_SQL_PASSWORD}
+      MYSQL_USER: ${SDB_SQL_USER}
+      MYSQL_PASSWORD: ${SDB_SQL_PASSWORD}
+      MYSQL_DATABASE: ${SDB_SQL_DB}
+    ports:
+      - "${HOST_SQL_MYSQL_PORT}:3306"
+    networks:
+      sequoiadb-net:
+        ipv4_address: 172.21.0.31
+    volumes:
+      # Shared volume with the persist-wrapper — used as a backup target
+      # across container lifecycles. Wrapper writes here on SIGTERM,
+      # reads from here on start.
+      - sdb_catalog_backup:/catalog-backup
+      # The image's own entrypoint writes to /opt/sequoiasql/mysql/database
+      # which we intentionally do NOT bind-mount (this image does not
+      # support persistent volumes cleanly — its instance registration
+      # is on the container's local FS). The wrapper handles persistence
+      # by copying to/from /catalog-backup around the entrypoint's life.
+      - ./scripts/sequoiasql-mysql-persist.sh:/opt/sequoiadb/wrapper/sequoiasql-mysql-persist.sh:ro
+    depends_on:
+      sdbserver1:
+        condition: service_healthy
+    healthcheck:
+      # Use the absolute path because mysqladmin is not on the default PATH
+      # inside this image (it lives at /opt/sequoiasql/mysql/bin/mysqladmin).
+      # No -p flag: the entrypoint does NOT honor MYSQL_ROOT_PASSWORD, so
+      # root is passwordless; passing one makes the ping fail.
+      test: ["CMD", "/opt/sequoiasql/mysql/bin/mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
 networks:
   sequoiadb-net:
     driver: bridge
@@ -172,4 +254,11 @@ volumes:
   sdb1_data:
   sdb2_data:
   sdb3_data:
+  sdb1_local:
+  sdb2_local:
+  sdb3_local:
   sdb_bootstrap:
+  # Shared with sequoiasql-mysql via the persist wrapper. Holds the SQL
+  # catalog snapshot that survives container recreation.
+  sdb_catalog_backup:
+  sequoiasql_mysql_data:

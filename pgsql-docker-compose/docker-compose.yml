@@ -1,0 +1,49 @@
+# Compatible with both `docker-compose` (v1) and `docker compose` (v2).
+#
+# Single PostgreSQL 16 instance, NO AUTH (pg_hba.conf uses `trust`),
+# listening on 0.0.0.0:5432 so it's reachable from any host on the LAN.
+# A default app database `appdb` is created on first boot via POSTGRES_DB.
+#
+# Bind-mount ./conf/postgresql.conf and ./conf/pg_hba.conf to override
+# the image defaults. The `command:` keeps the standard entrypoint while
+# pointing postgres at our custom config file.
+
+services:
+  pgsql:
+    image: postgres:16-alpine
+    container_name: pgsql
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      # Create a non-superuser application DB on first boot.
+      POSTGRES_USER: postgres
+      POSTGRES_DB: appdb
+      # Skip password setup — pg_hba.conf uses `trust` for all connections.
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: ""
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgsql_data:/var/lib/postgresql/data
+      - ./conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./conf/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./logs:/var/log/postgresql
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  pgsql_data:
+    driver: local

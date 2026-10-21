@@ -1,0 +1,33 @@
+# Compatible with both `docker-compose` (v1) and `docker compose` (v2).
+#
+# Single Redis 7.2 instance, no auth, listening on 0.0.0.0:6379 so it's
+# reachable from any host on the LAN. Tune `maxmemory` and `appendonly`
+# in conf/redis.conf if you need different durability/eviction semantics.
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./conf/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./logs:/var/log/redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  redis_data:
+    driver: local
